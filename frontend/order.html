@@ -86,6 +86,14 @@
         <span class="text-muted">Amount Paid</span>
         <strong id="info-total"></strong>
       </div>
+      <div class="summary-line" id="order-type-row">
+        <span class="text-muted">Order Type</span>
+        <span id="info-order-type">Premade</span>
+      </div>
+      <div class="summary-line" id="cust-fee-row" style="display:none">
+        <span class="text-muted">Customization Fee</span>
+        <span id="info-cust-fee"></span>
+      </div>
       <div class="summary-line" id="image-row" style="display:none">
         <span class="text-muted">Custom Image</span>
         <a id="info-image" href="#" target="_blank" style="color:var(--accent-light)">View →</a>
@@ -190,6 +198,20 @@ function renderOrder(order) {
   document.getElementById("info-qty").textContent = order.quantity;
   document.getElementById("info-total").textContent = formatINR(order.total_price);
   document.getElementById("info-date").textContent = new Date(order.created_at).toLocaleString("en-IN");
+
+  // Order type (Premade vs Customized) + customization fee
+  if (order.is_customized) {
+    document.getElementById("info-order-type").innerHTML =
+      '<span style="color:var(--accent-light);font-weight:600">🎨 Customized</span>';
+    const custFeeRow = document.getElementById("cust-fee-row");
+    custFeeRow.style.display = "flex";
+    // customization_fee is the fee stored; if not present, infer from total vs base
+    const custFee = order.customization_fee ?? null;
+    document.getElementById("info-cust-fee").textContent =
+      custFee != null ? formatINR(custFee) : "Included";
+  } else {
+    document.getElementById("info-order-type").textContent = "📦 Premade";
+  }
 
   if (order.image_url) {
     document.getElementById("image-row").style.display = "flex";

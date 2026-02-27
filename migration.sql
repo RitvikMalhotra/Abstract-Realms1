@@ -1,14 +1,15 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Abstract Realms – Safe Migration
--- Run these against your Cloudflare D1 database.
--- Both statements use "ADD COLUMN IF NOT EXISTS" semantics via plain ALTER.
--- D1 is SQLite-compatible; plain ALTER TABLE ADD COLUMN is idempotent-safe
--- when the column does not yet exist (it will error if it does – run once only,
--- or use the wrangler d1 execute --command approach).
+-- Abstract Realms – Safe Migration (cumulative – run once only per column)
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Feature 1: Product image URL
-ALTER TABLE products ADD COLUMN image_url TEXT;
+-- Session 1 columns (already applied)
+-- ALTER TABLE products ADD COLUMN image_url TEXT;
+-- ALTER TABLE products ADD COLUMN is_customizable INTEGER DEFAULT 0;
 
--- Feature 2: Customisable flag
-ALTER TABLE products ADD COLUMN is_customizable INTEGER DEFAULT 0;
+-- Session 2: Product detail features
+ALTER TABLE products ADD COLUMN cover_image_url TEXT;
+ALTER TABLE products ADD COLUMN gallery_images_json TEXT;
+ALTER TABLE products ADD COLUMN description TEXT;
+ALTER TABLE products ADD COLUMN customization_fee INTEGER DEFAULT 20;
+
+ALTER TABLE orders ADD COLUMN is_customized INTEGER DEFAULT 0;

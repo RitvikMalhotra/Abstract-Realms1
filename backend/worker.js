@@ -146,16 +146,27 @@ export default {
 
       // ── POST /api/products ───────────────────────────────────────────────────
       if (path === "/api/products" && method === "POST") {
-        const { name, category, base_price, stock, image_url, is_customizable } = await request.json();
+        const {
+          name, category, base_price, stock, image_url, is_customizable,
+          cover_image_url, gallery_images_json, description, customization_fee,
+        } = await request.json();
         if (!name || !category || base_price == null)
           return err("name, category, base_price required");
 
         const id = uid("prod_");
         await env.DB.prepare(
-          `INSERT INTO products (id, name, category, base_price, stock, image_url, is_customizable) VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-          .bind(id, name, category, base_price, stock ?? 0, image_url ?? null, is_customizable ? 1 : 0)
-          .run();
+          `INSERT INTO products
+            (id, name, category, base_price, stock, image_url, is_customizable,
+             cover_image_url, gallery_images_json, description, customization_fee)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          id, name, category, base_price, stock ?? 0,
+          image_url ?? null, is_customizable ? 1 : 0,
+          cover_image_url ?? null,
+          gallery_images_json ?? null,
+          description ?? null,
+          customization_fee ?? 20,
+        ).run();
 
         return json({ id, message: "Product created" }, 201);
       }
@@ -171,11 +182,36 @@ export default {
         return json({ url: result.secure_url, public_id: result.public_id });
       }
 
+      // ── GET /api/product?id= ───────────────────────────────────────────────
+      // Product detail page
+      if (path === "/api/product" && method === "GET") {
+        const id = url.searchParams.get("id");
+        if (!id) return err("id required");
+        const product = await env.DB.prepare(
+          `SELECT p.*,
+            json_group_array(
+              json_object(
+                'id', pv.id, 'material', pv.material, 'shape', pv.shape,
+                'price_modifier', pv.price_modifier, 'stock', pv.stock
+              )
+            ) as variants
+           FROM products p
+           LEFT JOIN product_variants pv ON pv.product_id = p.id
+           WHERE p.id = ? AND p.is_active = 1
+           GROUP BY p.id`
+        ).bind(id).first();
+        if (!product) return err("Product not found", 404);
+        product.variants = JSON.parse(product.variants).filter(v => v.id !== null);
+        return json(product);
+      }
+
       // ── POST /api/create-order ─────────────────────────────────────────────
       // Creates order with PAYMENT_PENDING; returns order_id + amount for QR
       if (path === "/api/create-order" && method === "POST") {
-        const { customer_name, phone, email, product_id, variant_id, quantity, image_url, total_price } =
-          await request.json();
+        const {
+          customer_name, phone, email, product_id, variant_id,
+          quantity, image_url, total_price, is_customized,
+        } = await request.json();
 
         if (!customer_name || !phone || !product_id || !total_price)
           return err("Missing required order fields");
@@ -185,19 +221,20 @@ export default {
         await env.DB.prepare(
           `INSERT INTO orders
             (id, customer_name, phone, email, product_id, variant_id,
-             quantity, image_url, total_price, status)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`
+             quantity, image_url, total_price, status, is_customized)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
         ).bind(
           orderId,
           customer_name,
           phone,
-          email       ?? null,
+          email        ?? null,
           product_id,
-          variant_id  ?? null,
-          quantity    ?? 1,
-          image_url   ?? null,
+          variant_id   ?? null,
+          quantity     ?? 1,
+          image_url    ?? null,
           total_price,
-          "PAYMENT_PENDING"
+          "PAYMENT_PENDING",
+          is_customized ? 1 : 0,
         ).run();
 
         return json({ id: orderId, total_price, status: "PAYMENT_PENDING" }, 201);
@@ -249,6 +286,7 @@ export default {
 
         const order = await env.DB.prepare(
           `SELECT o.*, p.name AS product_name, p.category, p.base_price,
+                  p.customization_fee,
                   pv.material, pv.shape, pv.price_modifier
            FROM orders o
            JOIN products p ON p.id = o.product_id
@@ -295,10 +333,10 @@ export default {
       }
 
       // ── GET /api/product-stats ─────────────────────────────────────────────
-      // Feature 4: Admin product dashboard
       if (path === "/api/product-stats" && method === "GET") {
         const { results } = await env.DB.prepare(
-          `SELECT p.id, p.name, p.image_url, p.stock, p.is_customizable, p.category,
+          `SELECT p.id, p.name, p.image_url, p.cover_image_url, p.stock,
+                  p.is_customizable, p.category,
                   COUNT(o.id) AS total_sold
            FROM products p
            LEFT JOIN orders o ON o.product_id = p.id AND o.status != 'REJECTED'
@@ -307,6 +345,17 @@ export default {
            ORDER BY p.created_at DESC`
         ).all();
         return json(results);
+      }
+
+      // ── POST /api/delete-product ──────────────────────────────────────────
+      if (path === "/api/delete-product" && method === "POST") {
+        const { id, admin_key } = await request.json();
+        if (admin_key !== env.ADMIN_SECRET) return err("Unauthorized", 401);
+        if (!id) return err("id required");
+        // Soft-delete: set is_active = 0
+        await env.DB.prepare(`UPDATE products SET is_active = 0 WHERE id = ?`)
+          .bind(id).run();
+        return json({ success: true });
       }
 
       return err("Not found", 404);

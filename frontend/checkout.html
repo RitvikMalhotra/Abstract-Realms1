@@ -283,12 +283,13 @@ async function placeOrder() {
       body: JSON.stringify({
         customer_name: name,
         phone,
-        email:      email     || null,
-        product_id: item.product_id,
-        variant_id: item.variant_id || null,
-        quantity:   item.quantity,
-        image_url:  item.image_url  || null,
-        total_price: total,
+        email:        email     || null,
+        product_id:   item.product_id,
+        variant_id:   item.variant_id || null,
+        quantity:     item.quantity,
+        image_url:    item.image_url  || null,
+        total_price:  total,
+        is_customized: item.is_customized ? 1 : 0,
       }),
     });
 
