@@ -5,6 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 pages_build_output_dir = "./frontend"
 
+[vars]
+FRONTEND_URL = "https://shop.ritvikmalhotra.tech"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "merch-db"
