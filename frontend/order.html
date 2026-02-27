@@ -107,6 +107,11 @@
     <p class="text-muted mt-8" style="font-size:.82rem" id="poll-note">
       This page polls for updates every 10 seconds.
     </p>
+    <a id="invoice-btn" href="#" target="_blank"
+       class="btn btn-primary mt-4"
+       style="display:none;text-decoration:none">
+      📄 Download Invoice
+    </a>
     <a href="index.html" class="btn btn-outline mt-4">Back to Shop</a>
   </div>
 </div>
@@ -216,6 +221,15 @@ function renderOrder(order) {
   if (order.image_url) {
     document.getElementById("image-row").style.display = "flex";
     document.getElementById("info-image").href = order.image_url;
+  }
+
+  // Invoice download button
+  const invoiceBtn = document.getElementById("invoice-btn");
+  if (order.invoice_number) {
+    invoiceBtn.href = `${API_BASE}/api/invoice?id=${orderId}`;
+    invoiceBtn.style.display = "inline-block";
+  } else {
+    invoiceBtn.style.display = "none";
   }
 
   // Stop polling once completed or rejected

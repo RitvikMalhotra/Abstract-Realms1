@@ -104,6 +104,119 @@ function uid(prefix = "") {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// ─── Invoice PDF generator (pure JS – no Node deps, works in Workers) ────────
+function buildInvoicePdf(inv) {
+  // Sanitise to printable ASCII so byte-length === string-length (safe xref offsets)
+  const san  = (s) => String(s ?? "").replace(/[^ -~]/g, "?");
+  const esc  = (s) => san(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  const money = (n) => "Rs. " + Number(n ?? 0).toFixed(0);
+
+  // ── Content stream (BT/ET text blocks + horizontal rules) ──────────────────
+  const ops = [];
+  const T = (text, x, y, size, bold) =>
+    ops.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td (${esc(text)}) Tj ET`);
+  const HL = (y) =>
+    ops.push(`q 0.75 0.75 0.75 RG 50 ${y} m 545 ${y} l S Q`);
+
+  // Header
+  T("Abstract Realms",      50,  800, 20, true);
+  T("shop.sarthakg.tech",   50,  778, 10, false);
+  T("INVOICE",             400,  808, 14, true);
+  T("Invoice #: " + inv.invoiceNumber, 370, 793, 9, false);
+  T("Order ID:  " + inv.orderId,       370, 780, 9, false);
+  T("Date:      " + inv.date,          370, 767, 9, false);
+  HL(758);
+
+  // Bill To
+  T("BILL TO",          50, 742, 9, true);
+  T(inv.customerName,  50, 727, 11, false);
+  T("Phone: " + inv.phone, 50, 712, 9, false);
+  if (inv.email) T("Email: " + inv.email, 50, 697, 9, false);
+
+  const tableTopY = inv.email ? 680 : 695;
+  HL(tableTopY);
+
+  // Table header
+  const thY = tableTopY - 16;
+  T("Product",    50, thY, 9, true);
+  T("Type",      270, thY, 9, true);
+  T("Base Price",350, thY, 9, true);
+  T("Qty",       430, thY, 9, true);
+  T("Subtotal",  480, thY, 9, true);
+  HL(thY - 9);
+
+  // Table row
+  const trY = thY - 23;
+  const pname = san(inv.productName).length > 32
+    ? san(inv.productName).slice(0, 32) + "..."
+    : san(inv.productName);
+  T(pname,                            50, trY, 9, false);
+  T(inv.orderType,                   270, trY, 9, false);
+  T(money(inv.basePrice),            350, trY, 9, false);
+  T(String(inv.qty),                 430, trY, 9, false);
+  T(money(inv.basePrice * inv.qty),  480, trY, 9, false);
+
+  // Summary
+  let sy = trY - 14;
+  HL(sy);
+  sy -= 5;
+  if (inv.custFee > 0) {
+    sy -= 16;
+    T("Customization Fee:", 350, sy, 9, false);
+    T(money(inv.custFee),   490, sy, 9, false);
+    sy -= 10;
+    HL(sy);
+    sy -= 5;
+  }
+  sy -= 18;
+  T("TOTAL:",         370, sy, 12, true);
+  T(money(inv.total), 480, sy, 12, true);
+
+  // Footer
+  HL(75);
+  T("Thank you for your order!  -  Abstract Realms  |  shop.sarthakg.tech", 50, 60, 8, false);
+
+  const cs    = ops.join("\n");
+  const csLen = cs.length; // ASCII-only: byte length === string length
+
+  // ── Assemble PDF objects ────────────────────────────────────────────────────
+  const chunks  = [];
+  const offsets = new Array(7).fill(0); // [0] unused; [1-6] = byte offsets
+  let pos = 0;
+
+  const put = (s) => { chunks.push(s); pos += s.length; };
+  const obj = (n, body) => {
+    offsets[n] = pos;
+    put(`${n} 0 obj\n${body}\nendobj\n`);
+  };
+
+  put("%PDF-1.4\n");
+  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  obj(3,
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]\n" +
+    "   /Contents 4 0 R\n" +
+    "   /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>"
+  );
+  obj(4, `<< /Length ${csLen} >>\nstream\n${cs}\nendstream`);
+  obj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  obj(6, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+
+  const xrefPos = pos;
+  put("xref\n");
+  put("0 7\n");
+  put("0000000000 65535 f \n");
+  for (let i = 1; i <= 6; i++) {
+    put(`${String(offsets[i]).padStart(10, "0")} 00000 n \n`);
+  }
+  put("trailer\n<< /Size 7 /Root 1 0 R >>\n");
+  put("startxref\n");
+  put(`${xrefPos}\n`);
+  put("%%EOF\n");
+
+  return new TextEncoder().encode(chunks.join(""));
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 export default {
   async fetch(request, env) {
@@ -314,11 +427,22 @@ export default {
         await env.DB.prepare(`UPDATE orders SET status = ? WHERE id = ?`)
           .bind(status, id).run();
 
-        // ── Feature 6: Reduce stock when payment confirmed (only once, from PAYMENT_PENDING) ──
+        // ── Feature 6: Reduce stock + generate invoice when payment confirmed ──
         if (status === "PAYMENT_RECEIVED" && order.status === "PAYMENT_PENDING") {
+          // Reduce stock
           await env.DB.prepare(
             `UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ?`
           ).bind(order.quantity ?? 1, order.product_id).run();
+
+          // Generate unique invoice number INV-YYYY-XXXX
+          const year     = new Date().getFullYear();
+          const cntRes   = await env.DB.prepare(
+            `SELECT COUNT(*) AS cnt FROM orders WHERE invoice_number LIKE ?`
+          ).bind(`INV-${year}-%`).first();
+          const seq      = String((cntRes?.cnt ?? 0) + 1).padStart(4, "0");
+          const invNum   = `INV-${year}-${seq}`;
+          await env.DB.prepare(`UPDATE orders SET invoice_number = ? WHERE id = ?`)
+            .bind(invNum, id).run();
         }
 
         if (order.email) {
@@ -345,6 +469,53 @@ export default {
            ORDER BY p.created_at DESC`
         ).all();
         return json(results);
+      }
+
+      // ── GET /api/invoice?id= ───────────────────────────────────────────────
+      // Returns a dynamically generated PDF; no PDF stored in DB
+      if (path === "/api/invoice" && method === "GET") {
+        const id = url.searchParams.get("id");
+        if (!id) return err("id required");
+
+        const order = await env.DB.prepare(
+          `SELECT o.*, p.name AS product_name, p.base_price, p.customization_fee,
+                  pv.material, pv.shape
+           FROM orders o
+           JOIN products p ON p.id = o.product_id
+           LEFT JOIN product_variants pv ON pv.id = o.variant_id
+           WHERE o.id = ?`
+        ).bind(id).first();
+
+        if (!order) return err("Order not found", 404);
+        if (!order.invoice_number)
+          return err("Invoice not available yet — payment must be confirmed first.", 400);
+
+        const dateStr = new Date(order.created_at).toLocaleDateString("en-IN", {
+          day: "2-digit", month: "short", year: "numeric",
+        });
+
+        const pdfBytes = buildInvoicePdf({
+          invoiceNumber: order.invoice_number,
+          orderId:       order.id,
+          date:          dateStr,
+          customerName:  order.customer_name,
+          phone:         order.phone,
+          email:         order.email,
+          productName:   order.product_name,
+          orderType:     order.is_customized ? "Customized" : "Premade",
+          basePrice:     order.base_price,
+          custFee:       order.is_customized ? (order.customization_fee ?? 0) : 0,
+          qty:           order.quantity ?? 1,
+          total:         order.total_price,
+        });
+
+        return new Response(pdfBytes, {
+          headers: {
+            ...CORS_HEADERS,
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${order.invoice_number}.pdf"`,
+          },
+        });
       }
 
       // ── POST /api/delete-product ──────────────────────────────────────────
