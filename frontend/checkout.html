@@ -196,8 +196,9 @@
 
       <hr style="border:none;border-top:1px solid var(--border);margin:24px 0" />
 
-      <!-- Screenshot upload (optional) -->
-      <p style="font-weight:600;margin-bottom:10px">Paid? Upload your screenshot (optional but recommended)</p>
+      <!-- Screenshot upload (required) -->
+      <p style="font-weight:600;margin-bottom:6px">Upload payment screenshot <span style="color:#ef4444">*</span></p>
+      <p class="text-muted" style="font-size:.78rem;margin-bottom:10px">Required — we need this to verify your payment.</p>
       <div id="screenshot-zone" class="screenshot-zone" onclick="document.getElementById('screenshot-input').click()">
         <div style="font-size:1.8rem;margin-bottom:6px">📸</div>
         <p>Click to upload payment screenshot</p>
@@ -208,13 +209,11 @@
         <img id="screenshot-preview" style="max-height:140px;border-radius:8px;margin:0 auto" alt="Payment screenshot" />
       </div>
 
-      <button class="paid-btn" onclick="iHavePaid()" id="paid-btn">
+      <button class="paid-btn" onclick="iHavePaid()" id="paid-btn" disabled
+        style="margin-top:28px;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;color:#fff;padding:14px 36px;border-radius:12px;font-size:1.1rem;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(34,197,94,.35);transition:transform .15s,box-shadow .2s;opacity:.5">
         ✅ I Have Paid
       </button>
-
-      <p class="text-muted" style="font-size:.78rem;margin-top:16px">
-        After clicking, you'll be taken to your live order status page.
-      </p>
+      <p class="text-muted" style="font-size:.78rem;margin-top:8px">Upload your payment screenshot above to enable this button.</p>
     </div>
 
   </div>
@@ -353,37 +352,39 @@ function previewScreenshot(input) {
     document.getElementById("screenshot-preview-wrap").style.display = "block";
     document.getElementById("screenshot-zone").classList.add("uploaded");
     document.getElementById("screenshot-zone").querySelector("p").textContent = "Screenshot selected ✓";
+    // Enable the paid button now that screenshot is ready
+    const btn = document.getElementById("paid-btn");
+    btn.disabled   = false;
+    btn.style.opacity = "1";
+    btn.style.cursor  = "pointer";
   };
   reader.readAsDataURL(screenshotFile);
 }
 
 // ── "I Have Paid" ─────────────────────────────────────────────────────────────
 async function iHavePaid() {
-  if (!currentOrderId) { toast("No order found. Please refresh.", "error"); return; }
-
+  if (!currentOrderId) { toast("No order found. Please refresh.", "error"); return; }  if (!screenshotFile) { toast("Please upload your payment screenshot first", "error"); return; }
   const btn = document.getElementById("paid-btn");
   btn.disabled    = true;
   btn.textContent = "Saving…";
 
   try {
-    // Upload screenshot if provided
-    if (screenshotFile) {
-      if (screenshotFile.size > 5 * 1024 * 1024) {
-        toast("Screenshot must be under 5 MB", "error");
-        btn.disabled    = false;
-        btn.textContent = "✅ I Have Paid";
-        return;
-      }
-      showLoading();
-      const fd = new FormData();
-      fd.append("screenshot", screenshotFile);
-      fd.append("order_id",   currentOrderId);
-
-      const res  = await fetch(API_BASE + "/api/upload-payment-screenshot", { method: "POST", body: fd });
-      const data = await res.json();
-      hideLoading();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
+    // Upload screenshot (always required now)
+    if (screenshotFile.size > 5 * 1024 * 1024) {
+      toast("Screenshot must be under 5 MB", "error");
+      btn.disabled    = false;
+      btn.textContent = "✅ I Have Paid";
+      return;
     }
+    showLoading();
+    const fd = new FormData();
+    fd.append("screenshot", screenshotFile);
+    fd.append("order_id",   currentOrderId);
+
+    const res  = await fetch(API_BASE + "/api/upload-payment-screenshot", { method: "POST", body: fd });
+    const data = await res.json();
+    hideLoading();
+    if (!res.ok) throw new Error(data.error || "Upload failed");
 
     // Clear cart and redirect to order status page
     Cart.clear();

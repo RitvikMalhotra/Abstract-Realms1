@@ -373,6 +373,22 @@ function renderProduct() {
     document.getElementById("customize-fee-label").textContent =
       `+${formatINR(fee)} customization fee`;
   }
+
+  // ── Out of stock ─────────────────────────────────────────────────────────
+  if ((product.stock ?? 0) <= 0) {
+    const cartBtn = document.querySelector(".action-row button");
+    if (cartBtn) {
+      cartBtn.disabled    = true;
+      cartBtn.textContent = "Out of Stock";
+      cartBtn.style.cssText = "flex:1;background:rgba(156,163,175,.15);color:var(--muted);border:1px solid var(--border);cursor:not-allowed";
+    }
+    // Show badge next to price
+    const badge = document.createElement("span");
+    badge.textContent   = "Out of Stock";
+    badge.style.cssText = "background:#ef4444;color:#fff;font-size:.72rem;font-weight:700;padding:2px 10px;border-radius:20px;margin-left:10px;vertical-align:middle";
+    const priceEl = document.getElementById("info-price");
+    if (priceEl) priceEl.after(badge);
+  }
 }
 
 // ── Gallery builder ───────────────────────────────────────────────────────────
@@ -531,6 +547,7 @@ async function handleDesignUpload(input) {
 // ── Add to cart ───────────────────────────────────────────────────────────────
 function addToCart() {
   if (!product) return;
+  if ((product.stock ?? 0) <= 0) { toast("This product is out of stock", "error"); return; }
   const variant    = getSelectedVariant();
   const hasVariants = product.variants?.length > 0;
   if (hasVariants && !variant) { toast("Please select a variant", "error"); return; }

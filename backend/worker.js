@@ -329,6 +329,13 @@ export default {
         if (!customer_name || !phone || !product_id || !total_price)
           return err("Missing required order fields");
 
+        // ── BUG FIX 1: check stock before creating order ──────────────────
+        const productForStock = await env.DB.prepare(
+          `SELECT stock FROM products WHERE id = ? AND is_active = 1`
+        ).bind(product_id).first();
+        if (!productForStock) return err("Product not found", 404);
+        if ((productForStock.stock ?? 0) <= 0) return err("Out of stock", 400);
+
         const orderId = uid("ord_");
 
         await env.DB.prepare(
@@ -516,6 +523,15 @@ export default {
             "Content-Disposition": `attachment; filename="${order.invoice_number}.pdf"`,
           },
         });
+      }
+
+      // ── POST /api/admin-login ──────────────────────────────────────────────
+      // Validates admin key; returns ok:true so the frontend can gate the UI
+      if (path === "/api/admin-login" && method === "POST") {
+        const { admin_key } = await request.json();
+        if (!admin_key || admin_key !== env.ADMIN_SECRET)
+          return err("Invalid admin key", 401);
+        return json({ ok: true });
       }
 
       // ── POST /api/delete-product ──────────────────────────────────────────
