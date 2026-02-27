@@ -10,13 +10,19 @@
 
 -- ── products ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS products (
-  id         TEXT    PRIMARY KEY,
-  name       TEXT    NOT NULL,
-  category   TEXT    NOT NULL CHECK(category IN ('mug','keychain','magnet','badge')),
-  base_price INTEGER NOT NULL DEFAULT 0,
-  stock      INTEGER NOT NULL DEFAULT 0,
-  is_active  INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT    DEFAULT (datetime('now'))
+  id                  TEXT    PRIMARY KEY,
+  name                TEXT    NOT NULL,
+  category            TEXT    NOT NULL CHECK(category IN ('mug','keychain','magnet','badge')),
+  base_price          INTEGER NOT NULL DEFAULT 0,
+  stock               INTEGER NOT NULL DEFAULT 0,
+  image_url           TEXT,
+  is_customizable     INTEGER NOT NULL DEFAULT 0,
+  cover_image_url     TEXT,
+  gallery_images_json TEXT,
+  description         TEXT,
+  customization_fee   INTEGER NOT NULL DEFAULT 20,
+  is_active           INTEGER NOT NULL DEFAULT 1,
+  created_at          TEXT    DEFAULT (datetime('now'))
 );
 
 -- ── product_variants ──────────────────────────────────────────────────────────
@@ -32,18 +38,21 @@ CREATE TABLE IF NOT EXISTS product_variants (
 
 -- ── orders ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS orders (
-  id                    TEXT    PRIMARY KEY,
-  customer_name         TEXT    NOT NULL,
-  phone                 TEXT    NOT NULL,
-  email                 TEXT,
-  product_id            TEXT    NOT NULL,
-  variant_id            TEXT,
-  quantity              INTEGER NOT NULL DEFAULT 1,
-  image_url             TEXT,
+  id                     TEXT    PRIMARY KEY,
+  customer_name          TEXT    NOT NULL,
+  phone                  TEXT    NOT NULL,
+  email                  TEXT,
+  product_id             TEXT    NOT NULL,
+  variant_id             TEXT,
+  quantity               INTEGER NOT NULL DEFAULT 1,
+  image_url              TEXT,
   payment_screenshot_url TEXT,
-  total_price           INTEGER NOT NULL DEFAULT 0,
-  status                TEXT    NOT NULL DEFAULT 'PAYMENT_PENDING',
-  created_at            TEXT    DEFAULT (datetime('now')),
+  total_price            INTEGER NOT NULL DEFAULT 0,
+  status                 TEXT    NOT NULL DEFAULT 'PAYMENT_PENDING',
+  is_customized          INTEGER NOT NULL DEFAULT 0,
+  customization_fee      INTEGER,
+  invoice_number         TEXT,
+  created_at             TEXT    DEFAULT (datetime('now')),
   FOREIGN KEY (product_id) REFERENCES products(id),
   FOREIGN KEY (variant_id) REFERENCES product_variants(id)
 );
